@@ -1,0 +1,25 @@
+namespace BankIdKitTests;
+
+using Osysharp.BankId;
+
+// Thin by design: the KIT is under test, so these exist only to give the tests something a real app would also write.
+
+BankIdClient Bank() {
+  return new BankIdClient { BaseUrl = "https://appapi2.test.bankid.com/rp/v6.0" };
+}
+
+BankIdOrder StartLogin(string callerIp) { return Bank().Auth(callerIp); }
+BankIdOrder StartLoginWithNoIp() { return Bank().Auth(""); }
+BankIdOrder StartLoginSaying(string callerIp, string text) { return Bank().Auth(callerIp, text); }
+
+BankIdOrder SignPayment(string callerIp, string text) { return Bank().Sign(callerIp, text); }
+BankIdOrder SignWithAudit(string callerIp, string text, string audit) { return Bank().Sign(callerIp, text, audit); }
+BankIdOrder SignNothing(string callerIp) { return Bank().Sign(callerIp, ""); }
+BankIdOrder SignAnEssay(string callerIp) { return Bank().Sign(callerIp, "x".Repeat(1501)); }
+
+BankIdCollectResult Poll(string orderRef) { return Bank().Collect(orderRef); }
+void Abandon(string orderRef) { Bank().Cancel(orderRef); }
+
+string Qr(string token, string secret, int seconds) { return Bank().QrData(token, secret, seconds); }
+string QrBackwards(string token, string secret) { return Bank().QrData(token, secret, -1); }
+string SameDeviceUrl(string token, string back) { return Bank().AutoStartUrl(token, back); }

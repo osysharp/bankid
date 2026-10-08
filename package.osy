@@ -1,0 +1,41 @@
+// Osysharp.BankId — Swedish BankID, written in Osy#.
+//
+// ⭐ THE FIRST KIT THAT NEEDS MUTUAL TLS, and the reason that capability exists. BankID authenticates the CLIENT with
+//    a certificate and will not talk to anyone without one. `Http.*` had no seam for that until 2026-09-26, so this
+//    integration — and every bank, insurer and government API that works the same way — was unwritable in Osy# at all.
+//
+// ⭐ IT IS GRANTED THE IDENTITY, NOT THE KEY. `clientCert` is deliberately not `secret`: the platform authenticates as
+//    this certificate on the kit's behalf, and nothing in this package can read a byte of it. An app that grants only
+//    the line below has handed over the ability to talk to BankID as itself — not the private key.
+//
+// ⚠ BOTH HOSTS ARE DECLARED, so an app grants both (the compiler refuses a declared host left ungranted, naming it)
+//   and chooses the one it talks to with `BaseUrl`. The grant is the app's statement about where its users'
+//   identities go; which of the two is live is its setting.
+package Osysharp.BankId {
+  version     "0.1.0";
+  minPlatform "0.9.0";
+  summary     "Swedish BankID — auth and sign with animated QR or autostart, over mutual TLS.";
+
+  model "model/*.osy";
+  use Osysharp.Http;
+
+  egress "appapi2.bankid.com";
+  egress "appapi2.test.bankid.com";
+
+  // The RP certificate, as a secret the app declares. `osy secret set BankIdCert --file rp.p12 --base64`, and the
+  // export password as `BankIdCertPassword` when the archive has one (BankID's own test archive does).
+  clientCert "BankIdCert";
+
+  // ⛔ AND THE AUTHORITY, which is the part nobody expects until the first real call fails. BankID's hosts serve
+  //    certificates issued by their OWN root — `CN=Test BankID SSL Root CA v1 Test` in test — which is in no public
+  //    trust store and which the host does not send. Measured 2026-09-26 against the live test environment: the
+  //    client certificate authenticated and the call still died with `tls 20`, *unable to get local issuer
+  //    certificate*.
+  //
+  // ⚠ GRANTING IT NARROWS TRUST RATHER THAN WIDENING IT: this package then trusts BankID's root and NOT the public
+  //   authorities, so a compromised public CA cannot mint a certificate these calls would accept. Get the file from
+  //   BankID's own guides (their test-environment section) and store it with `osy secret set BankIdCa --file ca.pem`.
+  serverCa "BankIdCa";
+
+  tests "tests";
+}

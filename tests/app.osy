@@ -1,0 +1,20 @@
+// The producer's test project for Osysharp.BankId.
+//
+// ⭐ IT GRANTS THE CERTIFICATE, and that line is the point of the whole mTLS arc: the kit declares `clientCert
+//    "BankIdCert"` and an app that does not grant it does not compile. The tests stub `Http.Post`, so no handshake
+//    happens here — what is proven is the NEGOTIATION and the bodies. The handshake itself is proven by
+//    `ClientCertificateEgressTests` against a real TLS listener.
+app BankIdKitTests {
+  model "model/**/*.osy";
+  tests "**/*.test.osy";
+
+  use Osysharp.BankId@0 {
+    egress     "appapi2.bankid.com";
+    egress     "appapi2.test.bankid.com";
+    clientCert "BankIdCert";
+    serverCa   "BankIdCa";
+  }
+  use Osysharp.Http;
+}
+
+app.Secrets = [ new Secret("BankIdCert"), new Secret("BankIdCa") ];

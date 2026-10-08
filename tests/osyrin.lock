@@ -1,0 +1,26 @@
+{
+  "platform": {
+    "version": "0.9.0"
+  },
+  "entries": [
+    {
+      "name": "Osysharp.BankId",
+      "kind": "package",
+      "version": "0.1.0",
+      "hash": "sha256:b78ab584081b683df8437298d110ca38b3057ff49e216c1610a6172c0d39eb0a",
+      "minPlatform": "0.9.0",
+      "shadow": "app-forkable",
+      "source": "workspace:kits/bankid",
+      "constraint": "0"
+    },
+    {
+      "name": "Osysharp.Http",
+      "kind": "package",
+      "version": "1.0.0",
+      "hash": "sha256:4c24068aeea5ef1a155459d4cc332c85d7ee3d96049f2404e54ac860d94beb0f",
+      "minPlatform": "0.9.0",
+      "shadow": "app-forkable",
+      "source": "workspace:Platform.Core/Dsl/OsySharp/Baseline/Capabilities/Http"
+    }
+  ]
+}

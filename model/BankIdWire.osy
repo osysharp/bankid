@@ -1,0 +1,69 @@
+// The BankID RP API v6.0 on the wire. Requests and responses are both JSON here — unlike Stripe, which takes forms.
+namespace Osysharp.BankId;
+
+/// What `/auth` and `/sign` answer: the handles that drive everything afterwards.
+///
+/// ⚠ `orderRef` IS `[ExternalName]`d ONTO A MEMBER CALLED SOMETHING ELSE only where it must be; a materialized class
+/// gets an implicit `Id`, so nothing here may be called `Id`.
+public class BankIdOrder {
+  /// The handle for `Collect` and `Cancel`. Keep it for as long as the order is running and no longer.
+  [ExternalName("orderRef")] public string? OrderRef;
+  /// For SAME-DEVICE start: build `bankid:///?autostarttoken=<this>&redirect=<url>` and send the browser there.
+  [ExternalName("autoStartToken")] public string? AutoStartToken;
+  /// For OTHER-DEVICE start: with `QrStartSecret`, this drives the animated QR. See `BankIdClient.QrData`.
+  [ExternalName("qrStartToken")] public string? QrStartToken;
+  /// ⛔ A SECRET, AND IT MUST NOT REACH THE BROWSER. The QR the user scans is derived FROM it, once per second, on
+  /// the server. Sending the secret itself to the page would let anyone watching rebuild every future QR for the
+  /// order — which is exactly the hijack the animation exists to prevent.
+  [ExternalName("qrStartSecret")] public string? QrStartSecret;
+}
+
+/// Who signed, once an order completes.
+public class BankIdUser {
+  /// The Swedish personal number, twelve digits, no separator.
+  [ExternalName("personalNumber")] public string? PersonalNumber;
+  [ExternalName("name")] public string? Name;
+  [ExternalName("givenName")] public string? GivenName;
+  [ExternalName("surname")] public string? Surname;
+}
+
+/// The device the order ran on.
+public class BankIdDevice {
+  [ExternalName("ipAddress")] public string? IpAddress;
+}
+
+/// Everything a COMPLETED order carries.
+///
+/// ⚑ `Signature` and `OcspResponse` are the cryptographic evidence that this happened. Most apps never look at them
+/// and should still STORE them: they are what an auditor, a dispute or a regulator asks for later, and they cannot be
+/// recovered from BankID afterwards. The kit hands them over rather than dropping them for being unused.
+public class BankIdCompletion {
+  [ExternalName("user")] public BankIdUser? User;
+  [ExternalName("device")] public BankIdDevice? Device;
+  [ExternalName("bankIdIssueDate")] public string? BankIdIssueDate;
+  /// The signature, base64 XML. Evidence — store it.
+  [ExternalName("signature")] public string? Signature;
+  /// The OCSP response proving the certificate was valid at signing time, base64. Evidence — store it.
+  [ExternalName("ocspResponse")] public string? OcspResponse;
+}
+
+/// What `/collect` answers.
+///
+/// ⛔ `Status` IS THE WHOLE PROTOCOL: `pending` (keep polling), `complete` (done — read `Completion`), `failed` (stop).
+///    A caller that only checks for an exception has written a flow that treats an expired order as a success.
+public class BankIdCollectResult {
+  [ExternalName("orderRef")] public string? OrderRef;
+  [ExternalName("status")] public string? Status;
+  /// WHY, in BankID's own vocabulary — `outstandingTransaction`, `userSign`, `userCancel`, `expiredTransaction`,
+  /// `startFailed`, `certificateErr`. It is what a page should turn into a sentence for the user, and the reason this
+  /// kit does not collapse it into a bool.
+  [ExternalName("hintCode")] public string? HintCode;
+  [ExternalName("completionData")] public BankIdCompletion? Completion;
+}
+
+/// What BankID says when it refuses. `errorCode` is the machine-readable one — `alreadyInProgress`,
+/// `invalidParameters`, `unauthorized`, `notFound`, `requestTimeout`, `maintenance`.
+public class BankIdError {
+  [ExternalName("errorCode")] public string? ErrorCode;
+  [ExternalName("details")] public string? Details;
+}

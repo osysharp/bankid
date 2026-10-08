@@ -1,0 +1,253 @@
+namespace BankIdKitTests;
+
+using Osysharp.Http;
+using Osysharp.BankId;
+
+// The kit's own tests. `osy publish` runs them and refuses a version that fails.
+//
+// ⭐ ONE TEST HERE IS WORTH MORE THAN THE REST PUT TOGETHER: the animated QR, checked against BANKID'S OWN PUBLISHED
+//    VECTOR. Every other test in this file is self-consistent — it asserts that the kit does what the kit does. A
+//    published vector is the only thing that can catch the algorithm being confidently wrong, which is the failure
+//    mode that matters here, because a wrong QR still renders, still scans on the first frame, and only fails for
+//    real users a second later.
+
+[Test]
+void the_ANIMATED_QR_matches_BANKIDS_OWN_PUBLISHED_VECTOR() {
+    // From BankID's QR integration guide. If this ever reds, believe the vector and not the kit.
+    var token = "67df3917-fa0d-44e5-b327-edcc928297f8";
+    var secret = "d28db9a7-4cde-429e-a983-359be676944c";
+
+    var frame = Qr(token, secret, 0);
+
+    Assert.Equal(
+        "bankid.67df3917-fa0d-44e5-b327-edcc928297f8.0.dc69358e712458a66a7525beef148ae8526b1c71610eff2c16cdffb4cdac9bf8",
+        frame);
+}
+
+[Test]
+void the_QR_CHANGES_every_second_which_is_the_whole_point() {
+    // ⛔ A STATIC QR IS THE VULNERABILITY. The animation is what stops a phishing page showing a victim a QR from the
+    //    attacker's own login — so "it produced a QR" is not the property worth asserting; "it produced a DIFFERENT
+    //    one" is.
+    var token = "67df3917-fa0d-44e5-b327-edcc928297f8";
+    var secret = "d28db9a7-4cde-429e-a983-359be676944c";
+
+    var a = Qr(token, secret, 0);
+    var b = Qr(token, secret, 1);
+    var c = Qr(token, secret, 2);
+
+    Assert.NotEqual(a, b);
+    Assert.NotEqual(b, c);
+    // …and the token is stable across frames, so it is the CODE that moves and not the order.
+    Assert.Contains(token, a);
+    Assert.Contains(token, c);
+    Assert.StartsWith("bankid.", a);
+}
+
+[Test]
+void the_QR_SECRET_never_appears_in_the_frame() {
+    // The secret derives the frame and must never travel with it — anyone holding it can generate every future frame.
+    var secret = "d28db9a7-4cde-429e-a983-359be676944c";
+
+    var frame = Qr("67df3917-fa0d-44e5-b327-edcc928297f8", secret, 7);
+
+    Assert.DoesNotContain(secret, frame);
+}
+
+[Test]
+void a_negative_elapsed_time_is_refused_and_blames_the_CLOCK() {
+    var refusal = Assert.Throws<ExternalServiceException>(
+        () => QrBackwards("67df3917-fa0d-44e5-b327-edcc928297f8", "d28db9a7-4cde-429e-a983-359be676944c"));
+
+    Assert.Contains("clock", refusal.Message);
+}
+
+// ── orders ──────────────────────────────────────────────────────────────────────────────────────────────────────
+
+[Test]
+void an_auth_order_posts_JSON_and_carries_NO_authorization_header() {
+    // ⭐ THE HEADER'S ABSENCE IS THE ASSERTION. BankID authenticates the CERTIFICATE, not a bearer token — the
+    //    platform attaches the identity from the app's `clientCert` grant and nothing in the kit sends a credential.
+    //    A kit that grew an `ApiKey` property would pass every other test in this file.
+    var posted = new List<string>();
+    var urls = new List<string>();
+    var sawAuth = new List<string>();
+    Http.Post.Stub((url, body, headers) => {
+        urls.Add(url);
+        posted.Add(body);
+        sawAuth.Add(headers.ContainsKey("Authorization") ? "present" : "<absent>");
+        return new HttpResponse { StatusCode = 200, Body = "{\"orderRef\":\"131daac9\",\"autoStartToken\":\"7c40b5c9\",\"qrStartToken\":\"67df3917\",\"qrStartSecret\":\"d28db9a7\"}" };
+    });
+
+    var order = StartLogin("203.0.113.9");
+
+    Assert.Equal("https://appapi2.test.bankid.com/rp/v6.0/auth", urls[0]);
+    Assert.Contains("\"endUserIp\":\"203.0.113.9\"", posted[0]);
+    Assert.Equal("<absent>", sawAuth[0]);
+    Assert.Equal("131daac9", order.OrderRef);
+    Assert.Equal("d28db9a7", order.QrStartSecret);
+}
+
+[Test]
+void a_missing_end_user_ip_is_refused_BEFORE_the_call_and_says_whose_ip_it_is() {
+    // ⚑ THE CLASSIC BANKID BUG. Sending the SERVER's IP works perfectly in development, where they are the same
+    //   machine, and silently destroys BankID's fraud signals in production. The refusal names the distinction.
+    var urls = new List<string>();
+    Http.Post.Stub((url, body) => { urls.Add(url); return new HttpResponse { StatusCode = 200, Body = "{}" }; });
+
+    var refusal = Assert.Throws<ExternalServiceException>(() => StartLoginWithNoIp());
+
+    Assert.Equal(0, urls.Count);
+    Assert.Contains("END USER's IP", refusal.Message);
+    Assert.Contains("not your server's", refusal.Message);
+}
+
+[Test]
+void the_visible_text_travels_BASE64_because_that_is_what_bankid_takes() {
+    // ⚠ AND THE APP NEVER ENCODES IT. Passing already-encoded text puts a screen of base64 in front of the user —
+    //   a failure you only find by looking at a phone, which is why the kit owns the encoding.
+    var posted = new List<string>();
+    Http.Post.Stub((url, body) => { posted.Add(body); return new HttpResponse { StatusCode = 200, Body = "{\"orderRef\":\"o1\"}" }; });
+
+    SignPayment("203.0.113.9", "Betala 249,00 kr till Acme AB");
+
+    Assert.Contains("\"userVisibleData\":\"" + Convert.ToBase64String(Text.ToBytes("Betala 249,00 kr till Acme AB")) + "\"", posted[0]);
+    // The plain text is nowhere in the body — if it were, the encoding did not happen.
+    Assert.DoesNotContain("Betala 249", posted[0]);
+}
+
+[Test]
+void an_auth_order_can_say_why_it_asks_in_base64_like_a_signing_one() {
+  // An age check is an AUTH order — nothing is signed — but the person should read who asks and why, not a bare
+  // "log in". BankID takes the text base64-encoded on /auth exactly as on /sign.
+  var posted = new List<string>();
+  var urls = new List<string>();
+  Http.Post.Stub((url, body) => { urls.Add(url); posted.Add(body); return new HttpResponse { StatusCode = 200, Body = "{\"orderRef\":\"o3\"}" }; });
+
+  StartLoginSaying("203.0.113.9", "Grounds & Grapes asks you to prove that you are 20 or older.");
+
+  Assert.Equal("https://appapi2.test.bankid.com/rp/v6.0/auth", urls[0]);
+  Assert.Contains("\"userVisibleData\":\"" + Convert.ToBase64String(Text.ToBytes("Grounds & Grapes asks you to prove that you are 20 or older.")) + "\"", posted[0]);
+  Assert.DoesNotContain("prove that", posted[0]);
+}
+
+[Test]
+void audit_data_is_sent_only_when_given_and_is_also_base64() {
+    var posted = new List<string>();
+    Http.Post.Stub((url, body) => { posted.Add(body); return new HttpResponse { StatusCode = 200, Body = "{\"orderRef\":\"o2\"}" }; });
+
+    SignPayment("203.0.113.9", "Betala 249,00 kr");
+    SignWithAudit("203.0.113.9", "Betala 249,00 kr", "order=A-1001");
+
+    Assert.DoesNotContain("userNonVisibleData", posted[0]);
+    Assert.Contains("\"userNonVisibleData\":\"" + Convert.ToBase64String(Text.ToBytes("order=A-1001")) + "\"", posted[1]);
+}
+
+[Test]
+void a_signing_order_with_nothing_to_read_is_refused() {
+    var urls = new List<string>();
+    Http.Post.Stub((url, body) => { urls.Add(url); return new HttpResponse { StatusCode = 200, Body = "{}" }; });
+
+    var refusal = Assert.Throws<ExternalServiceException>(() => SignNothing("203.0.113.9"));
+
+    Assert.Equal(0, urls.Count);
+    Assert.Contains("visibleText", refusal.Message);
+}
+
+[Test]
+void text_past_bankids_limit_is_refused_against_the_DECODED_length() {
+    // Base64 inflates by a third, so checking the encoded length would refuse valid text at ~1125 characters. The
+    // limit BankID applies is on what the user reads.
+    var urls = new List<string>();
+    Http.Post.Stub((url, body) => { urls.Add(url); return new HttpResponse { StatusCode = 200, Body = "{}" }; });
+
+    var refusal = Assert.Throws<ExternalServiceException>(() => SignAnEssay("203.0.113.9"));
+
+    Assert.Equal(0, urls.Count);
+    Assert.Contains("1500", refusal.Message);
+    Assert.Contains("1501", refusal.Message);
+}
+
+// ── following an order ──────────────────────────────────────────────────────────────────────────────────────────
+
+[Test]
+void collect_carries_the_STATUS_and_the_HINT_because_both_drive_the_page() {
+    // ⛔ A PENDING ORDER IS A SUCCESSFUL CALL. A caller that only checks for an exception treats "the user has not
+    //    opened the app yet" as a completed login.
+    Http.Post.Stub((url, body) => new HttpResponse {
+        StatusCode = 200,
+        Body = "{\"orderRef\":\"131daac9\",\"status\":\"pending\",\"hintCode\":\"userSign\"}",
+    });
+
+    var result = Poll("131daac9");
+
+    Assert.Equal("pending", result.Status);
+    Assert.Equal("userSign", result.HintCode);
+}
+
+[Test]
+void a_completed_order_carries_the_person_AND_the_evidence() {
+    // ⚑ `signature` and `ocspResponse` cannot be recovered from BankID afterwards, so a kit that dropped them for
+    //   being unused would quietly cost an app its only proof that a signing happened.
+    Http.Post.Stub((url, body) => new HttpResponse {
+        StatusCode = 200,
+        Body = "{\"orderRef\":\"131daac9\",\"status\":\"complete\",\"completionData\":{\"user\":{\"personalNumber\":\"190001010101\",\"name\":\"Anna Andersson\",\"givenName\":\"Anna\",\"surname\":\"Andersson\"},\"device\":{\"ipAddress\":\"203.0.113.9\"},\"bankIdIssueDate\":\"2026-01-01\",\"signature\":\"PD94bWw=\",\"ocspResponse\":\"MIIHYgoB\"}}",
+    });
+
+    var result = Poll("131daac9");
+
+    Assert.Equal("complete", result.Status);
+    Assert.Equal("190001010101", result.Completion?.User?.PersonalNumber);
+    Assert.Equal("Anna Andersson", result.Completion?.User?.Name);
+    Assert.Equal("203.0.113.9", result.Completion?.Device?.IpAddress);
+    Assert.Equal("PD94bWw=", result.Completion?.Signature);
+    Assert.Equal("MIIHYgoB", result.Completion?.OcspResponse);
+}
+
+[Test]
+void cancel_posts_the_order_ref_and_expects_nothing_back() {
+    var posted = new List<string>();
+    var urls = new List<string>();
+    Http.Post.Stub((url, body) => { urls.Add(url); posted.Add(body); return new HttpResponse { StatusCode = 200, Body = "{}" }; });
+
+    Abandon("131daac9");
+
+    Assert.Equal("https://appapi2.test.bankid.com/rp/v6.0/cancel", urls[0]);
+    Assert.Contains("\"orderRef\":\"131daac9\"", posted[0]);
+}
+
+[Test]
+void alreadyInProgress_explains_that_CANCEL_is_the_fix() {
+    // The error names a live order the user cannot see, on a page that looks broken. The remedy belongs in the message.
+    Http.Post.Stub((url, body) => new HttpResponse {
+        StatusCode = 400,
+        Body = "{\"errorCode\":\"alreadyInProgress\",\"details\":\"Order already in progress for pno\"}",
+    });
+
+    var refusal = Assert.Throws<ExternalServiceException>(() => StartLogin("203.0.113.9"));
+
+    Assert.Contains("alreadyInProgress", refusal.Message);
+    Assert.Contains("Cancel", refusal.Message);
+}
+
+[Test]
+void unauthorized_points_at_the_CERTIFICATE_and_the_environment() {
+    // ⚑ THE COMMONEST SETUP MISTAKE, and the one hardest to guess from a 401: a TEST certificate against production,
+    //   or the reverse. Both fail exactly here and nothing else in the stack says so.
+    Http.Post.Stub((url, body) => new HttpResponse { StatusCode = 401, Body = "{\"errorCode\":\"unauthorized\"}" });
+
+    var refusal = Assert.Throws<ExternalServiceException>(() => StartLogin("203.0.113.9"));
+
+    Assert.Contains("unauthorized", refusal.Message);
+    Assert.Contains("clientCert", refusal.Message);
+    Assert.Contains("401", refusal.Message);
+}
+
+[Test]
+void the_autostart_url_escapes_the_return_address() {
+    // A raw `?` or `&` in the return URL silently truncates the redirect, stranding the user in the BankID app.
+    var url = SameDeviceUrl("7c40b5c9-abc", "https://acme.test/login/done?next=/orders&x=1");
+
+    Assert.StartsWith("bankid:///?autostarttoken=7c40b5c9-abc&redirect=", url);
+    Assert.Contains("https%3A%2F%2Facme.test%2Flogin%2Fdone%3Fnext%3D%2Forders%26x%3D1", url);
+}

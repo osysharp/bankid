@@ -1,0 +1,186 @@
+namespace Osysharp.BankId;
+
+using Osysharp.Http;
+
+/// What goes UP for `/auth` and `/sign`. Built by the client rather than by the app, so the base64 rule below is kept
+/// in one place instead of at every call site.
+public class BankIdRequest {
+  [ExternalName("endUserIp")] public string EndUserIp = "";
+  [ExternalName("userVisibleData")] public string? UserVisibleData;
+  [ExternalName("userNonVisibleData")] public string? UserNonVisibleData;
+  [ExternalName("userVisibleDataFormat")] public string? UserVisibleDataFormat;
+}
+
+/// One order reference, for `/collect` and `/cancel`.
+public class BankIdOrderRefRequest {
+  [ExternalName("orderRef")] public string OrderRef = "";
+}
+
+/// Swedish BankID. Hold one on the app and drive an order through it:
+///
+///   BankIdClient Bank() {
+///     return new BankIdClient { BaseUrl = "https://appapi2.test.bankid.com/rp/v6.0" };
+///   }
+///
+///   string StartLogin(string callerIp) {
+///     var order = Bank().Auth(callerIp);
+///     // keep order.OrderRef and order.QrStartSecret SERVER-SIDE; the page gets the QR text, once per second.
+///     return order.OrderRef ?? "";
+///   }
+///
+/// ⛔ THE CERTIFICATE IS NOT A SETTING HERE, and that is the difference from every other kit. There is no `ApiKey`
+///    property: the app grants `clientCert "BankIdCert"` in its `use` body, the platform authenticates as that
+///    identity, and this code never sees it. Nothing you can write in this class could leak it.
+///
+/// ⚠ `BaseUrl` DEFAULTS TO PRODUCTION. Point it at `https://appapi2.test.bankid.com/rp/v6.0` for the test
+///   environment, whose RP certificate BankID publishes openly. Defaulting to test would be the worse mistake: an
+///   app that shipped still pointing at it would authenticate nobody while looking like it worked.
+public class BankIdClient {
+  /// The RP API root. Production by default; the test environment is `https://appapi2.test.bankid.com/rp/v6.0`.
+  public string BaseUrl = "https://appapi2.bankid.com/rp/v6.0";
+
+  // ── starting an order ─────────────────────────────────────────────────────────────────────────────────────────
+
+  /// Start an authentication order.
+  ///
+  /// ⛔ `endUserIp` IS THE END USER'S IP, NOT YOUR SERVER'S, and getting it wrong is the classic BankID integration
+  ///    bug: everything works in development (where they are the same machine) and BankID's fraud signals are
+  ///    meaningless in production. Take it from the request, through whatever proxy header your deployment trusts.
+  ///
+  /// ⚠ v6.0 TAKES NO PERSONAL NUMBER. You cannot start an order for a named person any more — the user is identified
+  ///   by scanning the QR or by autostart on their own device. An integration written against v5 that passed one is
+  ///   not "missing a parameter"; the flow changed.
+  public BankIdOrder Auth(string endUserIp) {
+    return StartOrder("/auth", new BankIdRequest { EndUserIp = Require(endUserIp) });
+  }
+
+  /// Start an authentication order that tells the user WHY — `visibleText` is shown in the BankID app above the
+  /// button ("Grounds & Grapes asks you to prove that you are 20 or older"). Without it the app shows a bare "log in",
+  /// which is the wrong thing to ask someone who came to buy wine. Base64-encoded here, as for `Sign`.
+  public BankIdOrder Auth(string endUserIp, string visibleText) {
+    if (visibleText.Length > 1500) {
+      throw new ExternalServiceException($"`visibleText` is {visibleText.Length} characters and BankID takes at most 1500.");
+    }
+    var request = new BankIdRequest { EndUserIp = Require(endUserIp) };
+    if (visibleText != "") { request.UserVisibleData = Convert.ToBase64String(Text.ToBytes(visibleText)); }
+    return StartOrder("/auth", request);
+  }
+
+  /// Start a signing order. `visibleText` is what the user reads in the BankID app before they sign — write it for
+  /// them, not for your logs: it is the only thing standing between a user and signing something they did not mean to.
+  ///
+  /// ⚠ BANKID TAKES THIS BASE64-ENCODED and this method does the encoding. Passing already-encoded text produces a
+  ///   screen of base64 in front of the user, which is the failure you only find by looking at a phone.
+  public BankIdOrder Sign(string endUserIp, string visibleText, string? auditData = null) {
+    if (visibleText == "") {
+      throw new ExternalServiceException("A signing order needs `visibleText`: it is what the user reads in the BankID app before signing, and BankID refuses an order without it.");
+    }
+    if (visibleText.Length > 1500) {
+      // BankID's own limit is on the DECODED text. Caught here so the refusal names the text rather than a field.
+      throw new ExternalServiceException($"`visibleText` is {visibleText.Length} characters and BankID takes at most 1500. Shorten what the user is asked to read — it is meant to be read.");
+    }
+    var request = new BankIdRequest {
+      EndUserIp = Require(endUserIp),
+      UserVisibleData = Convert.ToBase64String(Text.ToBytes(visibleText)),
+    };
+    // Data the user does NOT see but that is covered by the signature — an order id, a document hash. Evidence,
+    // not display.
+    if (auditData != null && auditData != "") {
+      request.UserNonVisibleData = Convert.ToBase64String(Text.ToBytes(auditData));
+    }
+    return StartOrder("/sign", request);
+  }
+
+  // ── following it ──────────────────────────────────────────────────────────────────────────────────────────────
+
+  /// Ask what happened. Poll this about every two seconds while `Status` is `pending`.
+  ///
+  /// ⚠ POLL AT TWO SECONDS, not as fast as you can. BankID rate-limits, and a tight loop turns a working integration
+  ///   into `requestTimeout` for everyone on the same certificate.
+  public BankIdCollectResult Collect(string orderRef) {
+    var r = Post("/collect", JsonSerializer.Serialize(new BankIdOrderRefRequest { OrderRef = orderRef }));
+    return JsonSerializer.Deserialize<BankIdCollectResult>(r);
+  }
+
+  /// Abandon an order the user walked away from.
+  ///
+  /// ⚑ WORTH CALLING RATHER THAN LETTING IT EXPIRE. A live order blocks the next one for the same user with
+  /// `alreadyInProgress`, so a page that navigates away without cancelling leaves the user unable to log in for
+  /// minutes — and the error they then see is about a transaction they cannot see.
+  public void Cancel(string orderRef) {
+    Post("/cancel", JsonSerializer.Serialize(new BankIdOrderRefRequest { OrderRef = orderRef }));
+  }
+
+  // ── the animated QR ───────────────────────────────────────────────────────────────────────────────────────────
+
+  /// The QR text to draw, `secondsElapsed` seconds after the order started.
+  ///
+  /// ⭐ THIS IS WHY A KIT IS WORTH HAVING. The QR is not static: it is recomputed every second from a secret, so a
+  ///    screenshot of it is worthless a second later. That is what stops the oldest attack on this flow — a phishing
+  ///    page showing the victim a QR from the attacker's own login. Get the algorithm subtly wrong and everything
+  ///    still "works" in testing, because the first frame at t=0 is the one you photograph.
+  ///
+  /// ⛔ COMPUTE IT ON THE SERVER, ONCE PER SECOND, AND SEND ONLY THE RESULT. `qrStartSecret` must never reach the
+  ///    browser: anyone holding it can generate every future frame for the order, which is the whole hijack.
+  ///
+  /// The shape is BankID's own: `bankid.<token>.<seconds>.<HMAC-SHA256(secret, seconds)>`, hex, lower case.
+  public string QrData(string qrStartToken, string qrStartSecret, int secondsElapsed) {
+    if (secondsElapsed < 0) {
+      throw new ExternalServiceException($"`secondsElapsed` is {secondsElapsed}. It is the whole number of seconds since the order started — a negative value means the clock, not the order.");
+    }
+    var seconds = Convert.ToString(secondsElapsed);
+    var code = Crypto.ToHex(Crypto.HmacSha256(Text.ToBytes(qrStartSecret), Text.ToBytes(seconds)));
+    return "bankid." + qrStartToken + "." + seconds + "." + code;
+  }
+
+  /// The `bankid://` link for a SAME-DEVICE start — the user is already on the phone that holds their BankID.
+  ///
+  /// ⚠ `returnUrl` is where BankID sends them back. On iOS it must be a real URL your site serves; `null` sends them
+  ///   back to nothing, which strands the user in the BankID app with a completed order your page never learns about.
+  public string AutoStartUrl(string autoStartToken, string returnUrl) {
+    return "bankid:///?autostarttoken=" + Uri.EscapeDataString(autoStartToken)
+         + "&redirect=" + Uri.EscapeDataString(returnUrl);
+  }
+
+  // ── the wire ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+  BankIdOrder StartOrder(string path, BankIdRequest request) {
+    var options = new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+    return JsonSerializer.Deserialize<BankIdOrder>(Post(path, JsonSerializer.Serialize(request, options)));
+  }
+
+  string Require(string endUserIp) {
+    if (endUserIp == "") {
+      throw new ExternalServiceException("This order has no `endUserIp`. BankID requires the END USER's IP address — not your server's — and uses it for fraud signals, so a wrong one is worse than a missing one. Take it from the request.");
+    }
+    return endUserIp;
+  }
+
+  string Post(string path, string body) {
+    // No Authorization header anywhere in this class: the CERTIFICATE is the credential, and the platform attaches
+    // it from the app's `clientCert` grant. That is the whole of the authentication.
+    var headers = new Dictionary<string, string>();
+    var r = Http.Post(BaseUrl + path, body, "application/json", headers);
+    if (!r.IsSuccess) { throw new ExternalServiceException(Failure(path, r)); }
+    return r.Body;
+  }
+
+  /// What went wrong, in BankID's own vocabulary, with the two codes that are almost always the actual cause spelled
+  /// out — because both of them point somewhere other than the call that failed.
+  string Failure(string path, HttpResponse r) {
+    var detail = r.Body;
+    if (r.Body != "") {
+      var error = JsonSerializer.Deserialize<BankIdError>(r.Body);
+      if (error.ErrorCode != null) {
+        detail = error.Details != null ? error.ErrorCode + ": " + error.Details : error.ErrorCode;
+        if (error.ErrorCode == "alreadyInProgress") {
+          detail = detail + " — this user has a live order. Call `Cancel` when a page is abandoned, or they cannot start a new one until the old one expires.";
+        }
+        if (error.ErrorCode == "unauthorized") {
+          detail = detail + " — the RP certificate was rejected. Check that `clientCert \"BankIdCert\"` names a secret holding the certificate for THIS environment: a test certificate against production (or the reverse) fails exactly here.";
+        }
+      }
+    }
+    return "BankID " + path + " answered " + Convert.ToString(r.StatusCode) + ": " + detail;
+  }
+}

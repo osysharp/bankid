@@ -1,0 +1,16 @@
+{
+  "platform": {
+    "version": "0.9.0"
+  },
+  "entries": [
+    {
+      "name": "Osysharp.Http",
+      "kind": "package",
+      "version": "1.0.0",
+      "hash": "sha256:4c24068aeea5ef1a155459d4cc332c85d7ee3d96049f2404e54ac860d94beb0f",
+      "minPlatform": "0.9.0",
+      "shadow": "app-forkable",
+      "source": "workspace:Platform.Core/Dsl/OsySharp/Baseline/Capabilities/Http"
+    }
+  ]
+}
