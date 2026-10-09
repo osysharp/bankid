@@ -6,8 +6,8 @@
     {
       "name": "Osysharp.BankId",
       "kind": "package",
-      "version": "0.1.0",
-      "hash": "sha256:b78ab584081b683df8437298d110ca38b3057ff49e216c1610a6172c0d39eb0a",
+      "version": "0.1.1",
+      "hash": "sha256:c230c6c8ad46599bc46bd414dafd96fd8540df7dcf8367bcaf12b6836614b89b",
       "minPlatform": "0.9.0",
       "shadow": "app-forkable",
       "source": "workspace:kits/bankid",
@@ -22,5 +22,20 @@
       "shadow": "app-forkable",
       "source": "workspace:Platform.Core/Dsl/OsySharp/Baseline/Capabilities/Http"
     }
-  ]
+  ],
+  "bridges": {
+    "searched": [
+      "workspace",
+      "platform"
+    ],
+    "skipped": [
+      "github: offline \u2014 the public catalog was not searched for bridges. Run \u0060osy lock\u0060 with a network to look."
+    ],
+    "notIncluded": [
+      {
+        "name": "Osysharp.Shop.BankId",
+        "reason": "completes Osysharp.Shop \u002B Osysharp.BankId, and this app does not use \u0060Osysharp.Shop\u0060."
+      }
+    ]
+  }
 }

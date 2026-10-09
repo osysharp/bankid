@@ -1,8 +1,7 @@
 // Osysharp.BankId — Swedish BankID, written in Osy#.
 //
-// ⭐ THE FIRST KIT THAT NEEDS MUTUAL TLS, and the reason that capability exists. BankID authenticates the CLIENT with
-//    a certificate and will not talk to anyone without one. `Http.*` had no seam for that until 2026-09-26, so this
-//    integration — and every bank, insurer and government API that works the same way — was unwritable in Osy# at all.
+// ⭐ MUTUAL TLS. BankID authenticates the CLIENT with a certificate and will not talk to anyone without one — as do
+//    most bank, insurer and government APIs. The package declares the certificate it needs; the app grants it.
 //
 // ⭐ IT IS GRANTED THE IDENTITY, NOT THE KEY. `clientCert` is deliberately not `secret`: the platform authenticates as
 //    this certificate on the kit's behalf, and nothing in this package can read a byte of it. An app that grants only
@@ -12,7 +11,7 @@
 //   and chooses the one it talks to with `BaseUrl`. The grant is the app's statement about where its users'
 //   identities go; which of the two is live is its setting.
 package Osysharp.BankId {
-  version     "0.1.0";
+  version "0.1.1";
   minPlatform "0.9.0";
   summary     "Swedish BankID — auth and sign with animated QR or autostart, over mutual TLS.";
 
@@ -28,9 +27,8 @@ package Osysharp.BankId {
 
   // ⛔ AND THE AUTHORITY, which is the part nobody expects until the first real call fails. BankID's hosts serve
   //    certificates issued by their OWN root — `CN=Test BankID SSL Root CA v1 Test` in test — which is in no public
-  //    trust store and which the host does not send. Measured 2026-09-26 against the live test environment: the
-  //    client certificate authenticated and the call still died with `tls 20`, *unable to get local issuer
-  //    certificate*.
+  //    trust store and which the host does not send. Without it, against the live test environment, the client
+  //    certificate authenticates and the call still fails with `tls 20`, *unable to get local issuer certificate*.
   //
   // ⚠ GRANTING IT NARROWS TRUST RATHER THAN WIDENING IT: this package then trusts BankID's root and NOT the public
   //   authorities, so a compromised public CA cannot mint a certificate these calls would accept. Get the file from

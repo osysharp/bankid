@@ -11,11 +11,10 @@ Swedish adult already has.
 
 It has no user interface of its own — you draw the QR and write the page — so there is nothing to screenshot.
 
-## This is the kit that needed mutual TLS
+## Mutual TLS
 
-BankID authenticates the **client** with a certificate and will not talk to anyone without one. Until the
-`clientCert` grant landed, `Http.*` had no seam for that, and this integration — along with most bank, insurer and
-government APIs in the Nordics — was unwritable in Osy# at all.
+BankID authenticates the **client** with a certificate and will not talk to anyone without one — as do most bank,
+insurer and government APIs in the Nordics. The package declares it with a `clientCert` grant, and the app grants it:
 
 ```osy
 // app.osy
@@ -86,8 +85,7 @@ bankid.<qrStartToken>.<seconds>.<HMAC-SHA256(qrStartSecret, seconds)>
 
 Get it subtly wrong and everything still *looks* right, because the frame at `t=0` is the one you photograph while
 testing. So the kit is checked against **BankID's own published vector** — their token, their secret, their expected
-output — which is the only kind of test that can catch an algorithm being confidently wrong. Every other test in the
-file merely asserts that the kit does what the kit does.
+output — which is the only kind of test that can catch an algorithm being confidently wrong.
 
 ⛔ **Compute it server-side and send only the result.** `qrStartSecret` must never reach the browser: anyone holding
 it can generate every future frame for that order. A test asserts the secret does not appear in the frame.
@@ -114,11 +112,13 @@ them from there rather than from a blog. Test host is `https://appapi2.test.bank
 To complete a flow you also need a **test BankID** on a phone, which is a separate thing from the RP certificate —
 the test build of the app plus an issued test BankID. Production needs an RP agreement through a Swedish bank.
 
-## What is not covered yet
+## Scope
 
-- **`/phone/auth` and `/phone/sign`** — orders initiated over the telephone. Real endpoints, not written.
-- **Verifying the returned signature** — the kit hands you `signature` and `ocspResponse` and tells you to store
-  them, because they cannot be recovered from BankID later. It does not validate the XML signature itself.
+The kit covers `auth`, `sign`, `collect` and `cancel`, the animated QR and the autostart link. Two things are outside it:
+
+- **`/phone/auth` and `/phone/sign`** — orders initiated over the telephone.
+- **Verifying the returned signature** — the kit hands you `signature` and `ocspResponse`; store them, because they
+  cannot be recovered from BankID later. Validating the XML signature is the app's step.
 
 ## Verified against the real test environment
 
@@ -130,9 +130,9 @@ So `serverCa "BankIdCa"` is not optional for the test environment; without it th
 BankID-shaped happens, and the error is about TLS rather than about your integration.
 
 The root is published in BankID's *Relying Party Guidelines* §8 (the same section that gives the `qwerty123`
-passphrase), as a PEM you extract from the PDF. ⚠ **Do not take it from a search result.** The first copy tried while
-writing this was `CN=BankID SSL Root Certification Authority TEST` — a *different* root, issued 2008 and expired in
-2019, which is a plausible-looking wrong answer. **The check that settles it costs one command**, and it is the right
+passphrase), as a PEM you extract from the PDF. ⚠ **Do not take it from a search result.** A search readily turns up
+`CN=BankID SSL Root Certification Authority TEST` — a *different* root, issued 2008 and expired in 2019, which is a
+plausible-looking wrong answer. **The check that settles it costs one command**, and it is the right
 one to run on any root before trusting it:
 
 ```console
@@ -142,7 +142,7 @@ Verify return code: 0 (ok)
 ```
 
 ⭐ **Both files are checked in, under [`testcert/`](testcert/)** — BankID publishes them for anyone, passphrase and
-all, and assembling them the first time cost an afternoon. That directory's README has the two commands below ready
+all. That directory's README has the two commands below ready
 to paste, and it is NOT part of the package: `package.osy` globs `model/*.osy` and `tests`, so nothing under
 `testcert/` is ever published.
 
@@ -155,8 +155,8 @@ HTTP 200
 ```
 
 Every field the kit declares on the auth response came back populated — which is the one thing a stubbed test
-structurally cannot prove, and the reason this was worth doing. What is still NOT proven is a completed flow: that
-needs a test BankID on a phone, and the `collect` and signature-verification halves are unexercised.
+structurally cannot prove. A completed flow — `collect` after a person approves — needs a test BankID on a phone, and
+is outside this check.
 
 ## Source and tests
 

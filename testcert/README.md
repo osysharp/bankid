@@ -1,8 +1,7 @@
 # BankID test credentials — checked in on purpose
 
 Everything here is **published by BankID for anyone to use against their test environment**, passphrase included. It
-is committed so that the next person who wants to make a real BankID call does not spend an afternoon assembling it —
-which is exactly what it cost the first time.
+is committed so that anyone who wants to make a real BankID call has it in one place.
 
 ⛔ **None of it authenticates anything real.** The client certificate is issued by `Testbank A AB (publ)`, a fictional
 bank, and is accepted only by `appapi2.test.bankid.com`. Pointing it at `appapi2.bankid.com` fails at the handshake.
@@ -36,7 +35,7 @@ store and that the host does not send. So the call fails on TLS before anything 
 The root is not on the developer portal. It is a PEM block inside the *Relying Party Guidelines* PDF, §8 — the same
 section that gives the passphrase above.
 
-⛔ **The first copy found by searching was the WRONG root:** `CN=BankID SSL Root Certification Authority TEST`, issued
+⛔ **A search readily turns up the WRONG root:** `CN=BankID SSL Root Certification Authority TEST`, issued
 2008 and expired in 2019. A plausible name, a real BankID certificate, and useless here. **One command tells you
 which you are holding**, and it is worth running on any root before trusting it:
 
@@ -58,8 +57,8 @@ $ curl --cert-type P12 --cert FPTestcert5_20240610.p12:qwerty123 \
 {"orderRef":"…","autoStartToken":"…","qrStartToken":"…","qrStartSecret":"…"}
 ```
 
-That is the shape `Osysharp.BankId` produces, and it is what proved the kit's wire types against something other than
-its own stubs (2026-09-26). Through the kit instead, the same two files become the two grants the package declares:
+That is the shape `Osysharp.BankId` produces, and it proves the kit's wire types against something other than its own
+stubs. Through the kit instead, the same two files become the two grants the package declares:
 
 ```console
 $ osy secret set BankIdCert --file FPTestcert5_20240610.p12 --base64
@@ -70,7 +69,7 @@ $ osy secret set BankIdCa   --file test-bankid-ssl-root-ca-v1.pem
 ⚑ **Granting `serverCa` NARROWS trust rather than widening it** — the package then trusts BankID's root and *not* the
 public authorities, so a compromised public CA cannot mint a certificate these calls would accept.
 
-## What this still cannot do
+## Completing a flow
 
 Completing a flow needs a **test BankID on a phone**, which is a separate thing from the RP certificate: the test
 build of the BankID app plus an issued test identity, from
