@@ -11,7 +11,7 @@
 //   and chooses the one it talks to with `BaseUrl`. The grant is the app's statement about where its users'
 //   identities go; which of the two is live is its setting.
 package Osysharp.BankId {
-  version "0.1.1";
+  version "0.1.2";
   minPlatform "0.9.0";
   summary     "Swedish BankID — auth and sign with animated QR or autostart, over mutual TLS.";
 

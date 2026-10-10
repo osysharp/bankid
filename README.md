@@ -143,8 +143,8 @@ Verify return code: 0 (ok)
 
 ⭐ **Both files are checked in, under [`testcert/`](testcert/)** — BankID publishes them for anyone, passphrase and
 all. That directory's README has the two commands below ready
-to paste, and it is NOT part of the package: `package.osy` globs `model/*.osy` and `tests`, so nothing under
-`testcert/` is ever published.
+to paste. It is in this repository for you to use, and NOT in the package an app installs: `package.osy` globs
+`model/*.osy` and `tests`, so nothing under `testcert/` is in the release archive or reaches an app.
 
 **And a real `/auth` went through.** Client certificate `FP Testcert 5`, the root above, no other trust:
 
