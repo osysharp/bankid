@@ -2,27 +2,7 @@
   "platform": {
     "version": "0.9.0"
   },
-  "entries": [
-    {
-      "name": "Osysharp.BankId",
-      "kind": "package",
-      "version": "0.1.1",
-      "hash": "sha256:c230c6c8ad46599bc46bd414dafd96fd8540df7dcf8367bcaf12b6836614b89b",
-      "minPlatform": "0.9.0",
-      "shadow": "app-forkable",
-      "source": "workspace:kits/bankid",
-      "constraint": "0"
-    },
-    {
-      "name": "Osysharp.Http",
-      "kind": "package",
-      "version": "1.0.0",
-      "hash": "sha256:4c24068aeea5ef1a155459d4cc332c85d7ee3d96049f2404e54ac860d94beb0f",
-      "minPlatform": "0.9.0",
-      "shadow": "app-forkable",
-      "source": "workspace:Platform.Core/Dsl/OsySharp/Baseline/Capabilities/Http"
-    }
-  ],
+  "entries": [],
   "bridges": {
     "searched": [
       "workspace",
@@ -33,7 +13,7 @@
     ],
     "notIncluded": [
       {
-        "name": "Osysharp.Shop.BankId",
+        "name": "Osysharp.Shop.AgeCheck.BankId",
         "reason": "completes Osysharp.Shop \u002B Osysharp.BankId, and this app does not use \u0060Osysharp.Shop\u0060."
       }
     ]
