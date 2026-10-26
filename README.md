@@ -163,3 +163,80 @@ is outside this check.
 Everything is in `model/` — two files, no C# anywhere. `tests/` is the producer's own project, including
 BankID's published QR vector. It does not ship, and `osy publish` runs it and refuses a version that fails.
 
+## Examples
+
+Taken from this package's own tests, which compile and run on every release.
+
+```osy
+using Osysharp.Http;
+using Osysharp.BankId;
+
+[Test]
+void the_ANIMATED_QR_matches_BANKIDS_OWN_PUBLISHED_VECTOR() {
+    // From BankID's QR integration guide. If this ever reds, believe the vector and not the kit.
+    var token = "67df3917-fa0d-44e5-b327-edcc928297f8";
+    var secret = "d28db9a7-4cde-429e-a983-359be676944c";
+
+    var frame = Qr(token, secret, 0);
+
+    Assert.Equal(
+        "bankid.67df3917-fa0d-44e5-b327-edcc928297f8.0.dc69358e712458a66a7525beef148ae8526b1c71610eff2c16cdffb4cdac9bf8",
+        frame);
+}
+```
+
+From [`tests/bankid.test.osy`](tests/bankid.test.osy).
+
+```osy
+using Osysharp.Http;
+using Osysharp.BankId;
+
+[Test]
+void the_QR_CHANGES_every_second_which_is_the_whole_point() {
+    // ⛔ A STATIC QR IS THE VULNERABILITY. The animation is what stops a phishing page showing a victim a QR from the
+    //    attacker's own login — so "it produced a QR" is not the property worth asserting; "it produced a DIFFERENT
+    //    one" is.
+    var token = "67df3917-fa0d-44e5-b327-edcc928297f8";
+    var secret = "d28db9a7-4cde-429e-a983-359be676944c";
+
+    var a = Qr(token, secret, 0);
+    var b = Qr(token, secret, 1);
+    var c = Qr(token, secret, 2);
+
+    Assert.NotEqual(a, b);
+    Assert.NotEqual(b, c);
+    // …and the token is stable across frames, so it is the CODE that moves and not the order.
+    Assert.Contains(token, a);
+    Assert.Contains(token, c);
+    Assert.StartsWith("bankid.", a);
+}
+```
+
+From [`tests/bankid.test.osy`](tests/bankid.test.osy).
+
+```osy
+using Osysharp.Http;
+using Osysharp.BankId;
+
+[Test]
+void the_QR_SECRET_never_appears_in_the_frame() {
+    // The secret derives the frame and must never travel with it — anyone holding it can generate every future frame.
+    var secret = "d28db9a7-4cde-429e-a983-359be676944c";
+
+    var frame = Qr("67df3917-fa0d-44e5-b327-edcc928297f8", secret, 7);
+
+    Assert.DoesNotContain(secret, frame);
+}
+```
+
+From [`tests/bankid.test.osy`](tests/bankid.test.osy).
+
+## Learn more
+
+- [Osysharp.BankId in the package catalogue](https://osysharp.com/packages/#osysharp-bankid)
+- [The Osy# reference](https://osysharp.com/reference/) — the language, the runtime and every kit
+- [`llms-full.txt`](https://osysharp.com/llms-full.txt) — the whole reference and specification as one Markdown file, for a coding agent
+
+## Licence
+
+MIT — see [`LICENSE`](LICENSE). Third-party components keep their own terms: see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
