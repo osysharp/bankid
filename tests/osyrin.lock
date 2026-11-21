@@ -13,7 +13,7 @@
     ],
     "notIncluded": [
       {
-        "name": "Osysharp.Shop.AgeCheck.BankId",
+        "name": "Osysharp.Shop.BankIdAgeCheck",
         "reason": "completes Osysharp.Shop \u002B Osysharp.BankId, and this app does not use \u0060Osysharp.Shop\u0060."
       }
     ]
